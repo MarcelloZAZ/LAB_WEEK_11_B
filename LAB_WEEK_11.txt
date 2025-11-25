@@ -1,0 +1,43 @@
+1. Bagian Kode yang Menangani Pembuatan URI dan Objek File Sementara
+Kode yang menangani pembuatan URI sementara dan objek file untuk menyimpan gambar (pre-launch) berada di dalam fungsi generatePhotoUri di file ProviderFileManager.kt. Bagian ini berfungsi untuk memberi tahu aplikasi kamera di mana harus menyimpan hasil jepretan sebelum dipindahkan ke MediaStore secara permanen.
+
+fun generatePhotoUri (time: Long): FileInfo {
+    val name = "img_$time.jpg"
+    // Get the file object
+    // The file will be stored in the folder defined in
+    // file_provider_paths.xml
+    val file File(
+        context.getExternalFilesDir(fileHelper.getPicturesFolder()),
+        name
+    )
+    return FileInfo(
+        fileHelper.getUriFromFile(file),
+        file,
+        name,
+        fileHelper.getPicturesFolder(),
+        "image/jpeg"
+    )
+}
+
+2. Definisi Atribut URI dan relativePath di FileInfo.kt
+Dalam data class FileInfo :
+
+URI (val uri: Uri):
+URI ini merujuk pada Content URI sementara yang dihasilkan oleh FileProvider . URI ini adalah alamat file sementara yang diberikan kepada aplikasi kamera agar ia dapat menulis data gambar/video yang baru diambil. URI ini diperlukan untuk membatasi akses dari aplikasi lain.
+
+relativePath (val relativePath: String):
+relativePath merujuk pada jalur atau folder tujuan yang direkomendasikan di dalam penyimpanan eksternal (Environment.DIRECTORY_PICTURES atau Environment.DIRECTORY_MOVIES) di mana file akan diletakkan secara permanen di MediaStore. Atribut ini sangat penting untuk perangkat yang menjalankan Android 10 (API 29) ke atas untuk mematuhi Scoped Storage .
+3. Urutan Kronologis Proses Penyimpanan dari Kamera ke MediaStore
+Proses penyimpanan data dari saat pengguna mengambil gambar hingga file tersedia di MediaStore melibatkan beberapa langkah utama dan peralihan antara aplikasi (kamera) dan komponen sistem (ContentResolver).
+I. Persiapan (Prapeluncuran Kamera)
+Generate FileInfo: ProviderFileManager.generatePhotoUri() dipanggil, yang menghasilkan objek File kosong di area penyimpanan aplikasi (getExternalFilesDir) dan membuat URI sementara melalui FileProvider .
+Launch Kamera: takePictureLauncher.launch(photoInfo!!.uri) dipanggil, membuka aplikasi kamera dan meneruskan URI sementara ini sebagai lokasi tujuan hasil foto.
+II. Eksekusi (Penangkapan Foto)
+Kamera Menulis Data: Pengguna mengambil foto. Aplikasi kamera menulis data gambar yang sebenarnya ke lokasi yang ditunjukkan oleh URI sementara yang diberikan oleh FileProvider di langkah 2.
+III. Finalisasi dan Penyimpanan Permanen
+Insert Metadata: Setelah kamera ditutup, callback takePictureLauncher dipanggil, yang menjalankan providerFileManager.insertImageToStore(). Fungsi ini secara asynchronous (executor.execute) menyisipkan metadata file (nama, MIME type) ke MediaStore menggunakan contentResolver.insert(), yang kemudian mengembalikan URI permanen (insertedUri) dari lokasi penyimpanan akhir .
+Penyalinan Data: Data disalin dari lokasi sementara ke lokasi permanen MediaStore:
+Input Stream dibuka dari URI sementara (lokasi file yang ditulis kamera) .
+Output Stream dibuka ke URI permanen (insertedUri) .
+Penyalinan I/O dilakukan menggunakan IOUtils.copy(inputStream, outputStream).
+Selesai: File kini tersimpan di lokasi MediaStore yang permanen dan dapat diakses oleh aplikasi galeri.
